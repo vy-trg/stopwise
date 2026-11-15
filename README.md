@@ -5,7 +5,7 @@ Live trains, buses, trams and ferries for South East Queensland: where every ser
 
 📁 **[GitHub Repo](https://github.com/vy-trg/stopwise)**
 
-🔗 **[Live Demo](https://railway-live.onrender.com/)**
+🔗 **[Live Demo](https://stopwise.onrender.com/)**
 
 <p align="center"><img src="docs/screenshot.png" alt="Stopwise on a Saturday evening: 45 trains, 12 trams and 8 ferries on the map, late services listed first" width="720"></p>
 
