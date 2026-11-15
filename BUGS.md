@@ -12,7 +12,7 @@
 
 ## Secret scanning
 
-No secrets were ever committed to this repo (gitleaks scan of full history: no leaks). I added gitleaks as a pre-commit hook and in GitHub Actions anyway, after a password leak in my other project, Focus Tracker. The hook uses `pass_filenames: false` because the default `gitleaks-system` hook silently scanned nothing (details in Focus Tracker's BUGS.md).
+No secrets were ever committed to this repo (gitleaks scan of full history: no leaks). Re-checked on 15 Nov with TruffleHog over the full history of every branch: no secrets. The only hit is the local Docker dev password `postgres:postgres` in `compose.yaml`, which isn't a secret because that database only runs on my machine. I added gitleaks as a pre-commit hook and in GitHub Actions anyway, after a password leak in my other project, Focus Tracker. The hook uses `pass_filenames: false` because the default `gitleaks-system` hook silently scanned nothing (details in Focus Tracker's BUGS.md).
 
 ## Docker image built but the container crashed (4 Nov 2026)
 
