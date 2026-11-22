@@ -140,7 +140,7 @@
                     <div class="plan-place">
                         <label class="field-label" for="plan-from">From</label>
                         <div class="plan-row">
-                            <input id="plan-from" class="station-input" list="plan-from-list" autocomplete="off" placeholder="Station, stop or place, e.g. Springfield Central">
+                            <input id="plan-from" class="station-input" list="plan-from-list" autocomplete="off" placeholder="Station, stop, place or address">
                             <button id="plan-near" type="button" class="chip-btn" aria-describedby="plan-near-hint">Near me</button>
                         </div>
                         <datalist id="plan-from-list"></datalist>
@@ -158,7 +158,7 @@
                     <div class="plan-place">
                         <label class="field-label" for="plan-to">To</label>
                         <div class="plan-row">
-                            <input id="plan-to" class="station-input" list="plan-to-list" autocomplete="off" placeholder="Station, stop or place, e.g. Griffith University">
+                            <input id="plan-to" class="station-input" list="plan-to-list" autocomplete="off" placeholder="Station, stop, place or address">
                             <button id="plan-swap" type="button" class="chip-btn plan-swap" aria-label="Swap from and to" title="Swap from and to">⇅ Swap</button>
                         </div>
                         <datalist id="plan-to-list"></datalist>
@@ -211,9 +211,27 @@
             <section id="view-board" class="view" role="tabpanel" aria-labelledby="tab-board" hidden>
                 <!-- Type to search or scroll the list: 154 stations is too many for a plain dropdown -->
                 <label class="field-label" for="station-input">Departures from</label>
-                <input id="station-input" class="station-input" list="station-list" autocomplete="off" placeholder="Station or bus stop, e.g. Roma Street">
+                <div class="from-row">
+                    <input id="station-input" class="station-input" list="station-list" autocomplete="off" placeholder="Station, stop or street address" aria-describedby="station-hint">
+                    <button id="board-near" type="button" class="chip-btn">Near me</button>
+                </div>
+                <p class="field-hint" id="station-hint">Type an address to see the stops near it, then pick one.</p>
                 <datalist id="station-list"></datalist>
                 <p id="station-error" class="field-error" role="alert" hidden></p>
+                <!-- Stops near an address or near you: pick a kind, tap a stop for its departures -->
+                <section id="near-stops" class="near-stops" aria-labelledby="near-title" hidden>
+                    <div class="near-head">
+                        <h3 id="near-title">Stops near you</h3>
+                        <div class="seg" id="near-seg" role="group" aria-label="Kind of stop">
+                            <button type="button" data-near="" aria-pressed="true">All</button>
+                            <button type="button" data-near="train" aria-pressed="false">Train</button>
+                            <button type="button" data-near="bus" aria-pressed="false">Bus</button>
+                            <button type="button" data-near="tram" aria-pressed="false">Tram</button>
+                            <button type="button" data-near="ferry" aria-pressed="false">Ferry</button>
+                        </div>
+                    </div>
+                    <ul id="near-list" class="near-list"></ul>
+                </section>
                 <!-- Now, or plan ahead: any time in the next 7 days -->
                 <div class="when">
                     <span class="field-label" id="board-pick-label">Leaving</span>
