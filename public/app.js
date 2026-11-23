@@ -936,6 +936,8 @@ async function loadLive() {
         lastTrains = trains.trains;
         drawTrains();
         renderTrainList();
+        // Just switched to Buses: go to where they are, like the other kinds do
+        if (fitAfterLoad) { fitAfterLoad = false; fitToShown(); }
         lastUpdated = new Date(trains.updatedAt).getTime();
         feedState = trains.stale ? 'stale' : 'live';
         renderSummary(summary);
@@ -965,13 +967,30 @@ function renderSummary(s) {
 
 // ---------- Line filter ----------
 async function loadLines() {
-    lines = await getJson('/api/lines');
-    // The label says where a bus, ferry or tram goes, so typing "Springfield" also finds Bus 526
-    $('line-list').innerHTML = lines.map((l) => `<option value="${escapeHtml(l.name)}"${l.description ? ` label="${escapeHtml(l.description)}"` : ''}></option>`).join('');
+    [lines, liveStations] = await Promise.all([getJson('/api/lines'), getJson('/api/stations').catch(() => [])]);
+    fillLineList();
     if (state.line && !lines.some((l) => l.name === state.line)) state.line = '';
     $('line-filter').value = state.line;
     $('line-clear').hidden = !state.line;
     if (state.place) applyPlace(state.place);
+}
+
+// The suggestions under the Live search: what fits the kind you're looking at, trains, trams and
+// ferries before buses (469 bus routes used to bury the train lines), plus stations and bus
+// interchanges as places ("Roma Street"), so typing a station finds it, not just bus routes.
+let liveStations = [];
+const MODE_ORDER = { train: 0, tram: 1, ferry: 2, bus: 3 };
+function fillLineList() {
+    const want = (m) => !state.mode || m === state.mode;
+    const shownLines = lines.filter((l) => want(l.mode)).sort((a, b) => (MODE_ORDER[a.mode] ?? 9) - (MODE_ORDER[b.mode] ?? 9));
+    const places = liveStations.filter((s) => s.modes.split(',').some(want)).map((s) => s.name.replace(/ \((bus|busway)\)$/, ''));
+    const opt = (value, label) => `<option value="${escapeHtml(value)}"${label ? ` label="${escapeHtml(label)}"` : ''}></option>`;
+    const lineOpts = shownLines.map((l) => opt(l.name, l.description));
+    const placeOpts = [...new Set(places)].map((n) => opt(n, 'Services going to or through here'));
+    // Lines first for trains, trams and ferries; on Buses, places first (people type a suburb or station)
+    const nonBus = lineOpts.filter((_, i) => shownLines[i].mode !== 'bus');
+    const bus = lineOpts.filter((_, i) => shownLines[i].mode === 'bus');
+    $('line-list').innerHTML = [...nonBus, ...placeOpts, ...bus].join('');
 }
 
 // A bus route's line is drawn only while you filter to it (469 bus routes would cover the map)
@@ -1854,6 +1873,12 @@ $('stats-seg').addEventListener('click', (e) => {
 });
 
 // ---------- Kind of service: All / Trains / Tram / Ferries ----------
+// The map goes to what's now showing (the G:link is on the Gold Coast, far from Brisbane)
+let fitAfterLoad = false;
+function fitToShown() {
+    const shown = lastTrains.filter(routeVisible).map((t) => [t.lat, t.lng]);
+    if (state.mode && shown.length && !state.selected) map.flyToBounds(shown, { padding: [40, 40], maxZoom: 13, duration: reduceMotion() ? 0 : 0.8 });
+}
 function applyMode(mode) {
     const busChanged = (mode === 'bus') !== (state.mode === 'bus');
     state.mode = mode;
@@ -1870,6 +1895,8 @@ function applyMode(mode) {
         lastTrains = [];
         drawTrains();
         $('train-list').innerHTML = '<li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li>';
+        fitAfterLoad = true; // the buses aren't here yet: go to them once they've loaded
+        fillLineList();
         loadLive();
         return;
     }
@@ -1877,9 +1904,8 @@ function applyMode(mode) {
     renderTrainList();
     // The numbers at the top follow the view: "44 trains running", "10 trams running"…
     getJson(mode ? `/api/summary?mode=${mode}` : '/api/summary').then((s) => { if (state.mode === mode) renderSummary(s); }).catch(() => {});
-    // The G:link is on the Gold Coast, far from Brisbane: zoom the map to what is now showing
-    const shown = lastTrains.filter(routeVisible).map((t) => [t.lat, t.lng]);
-    if (mode && shown.length) map.flyToBounds(shown, { padding: [40, 40], maxZoom: 13, duration: reduceMotion() ? 0 : 0.8 });
+    fillLineList();
+    fitToShown();
 }
 document.querySelector('#mode-seg').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-mode]');
