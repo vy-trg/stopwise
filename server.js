@@ -789,6 +789,7 @@ app.get('/api/trips/:tripId', handle(async (req, res) => {
     const ride = Number.isInteger(fromSeq) && Number.isInteger(toSeq) ? rideState(progress, vehicle, fromSeq, toSeq) : undefined;
     res.json({
         tripId,
+        routeId: trip.route_id,
         routeName: trip.long_name,
         routeShort: trip.short_name,
         mode: trip.mode,

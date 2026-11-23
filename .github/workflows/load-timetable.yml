@@ -1,0 +1,24 @@
+name: Load timetable
+# TransLink publishes a new timetable every few weeks and the trip ids change with it. Without the
+# new one, live services can't be matched to their trips. Every Monday at 3:17 am Brisbane time
+# (17:17 UTC Sunday), fetch the latest and load it. It can also be run by hand from the Actions tab.
+on:
+  schedule:
+    - cron: '17 17 * * 0'
+  workflow_dispatch:
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev
+      - run: curl -fsSL -o SEQ_GTFS.zip https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip
+      - run: unzip -q SEQ_GTFS.zip -d data/gtfs
+      - run: node scripts/load-gtfs.js data/gtfs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

@@ -299,12 +299,30 @@ let listLimit = LIST_STEP;
 function renderTrainList() {
     $('train-list').removeAttribute('aria-busy');
     const list = $('train-list');
-    const trains = lastTrains.filter(routeVisible)
+    const visible = lastTrains.filter(routeVisible);
+    // Only what's on the map (feedback: "show only services that are within view"). A search already
+    // narrows the list and moves the map to it, so then everything that matches stays listed.
+    const inView = viewOnly && !state.place && !state.line;
+    const bounds = map.getBounds();
+    const trains = (inView ? visible.filter((t) => bounds.contains([t.lat, t.lng])) : visible)
         // Searching a place: services going there first, then ones passing through.
         // Otherwise late trains first: that's what someone checking the network wants to know
         .sort((a, b) => (state.place ? (placeMatch(a) === 'to' ? 0 : 1) - (placeMatch(b) === 'to' ? 0 : 1) : 0)
             || (LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]) || (b.delaySec ?? 0) - (a.delaySec ?? 0));
     const noun = (n) => (state.mode ? MODE_NOUN[state.mode][n === 1 ? 0 : 1] : n === 1 ? 'service' : 'services');
+    const note = $('view-note');
+    note.hidden = !viewOnly || state.place || state.line || visible.length === 0;
+    note.innerHTML = inView && trains.length < visible.length
+        ? `Showing ${trains.length} of ${visible.length} ${noun(visible.length)}: the ones on the map. <button type="button" class="link-btn" data-view-all>Show all</button>`
+        : inView ? `Everything running is on the map.` : '';
+    if (!viewOnly && !state.place && !state.line && visible.length) {
+        note.hidden = false;
+        note.innerHTML = `Showing all ${visible.length} ${noun(visible.length)}. <button type="button" class="link-btn" data-view-only>Only the ones on the map</button>`;
+    }
+    if (trains.length === 0 && inView && visible.length) {
+        list.innerHTML = `<li class="empty">Nothing running in this part of the map. Drag or zoom out, or <button type="button" class="link-btn" data-view-all>show all</button>.</li>`;
+        return;
+    }
     if (trains.length === 0) {
         list.innerHTML = state.place
             ? `<li class="empty">No ${noun(0)} going to or through “${escapeHtml(state.place)}” right now.${state.mode !== 'bus' ? ' Try Buses, or' : ''} <button type="button" class="link-btn" data-clear-line>show everything</button></li>`
@@ -332,7 +350,16 @@ function renderTrainList() {
         : state.line?.startsWith('Bus ') ? `Showing ${trains.length} ${noun(trains.length)} on route ${state.line.slice(4)}`
         : state.line ? `Showing ${trains.length} ${state.line} ${noun(trains.length)}` : '';
 }
+let viewOnly = true;
+$('view-note').addEventListener('click', (e) => {
+    if (e.target.closest('[data-view-all]')) viewOnly = false;
+    else if (e.target.closest('[data-view-only]')) viewOnly = true;
+    else return;
+    listLimit = LIST_STEP;
+    renderTrainList();
+});
 $('train-list').addEventListener('click', (e) => {
+    if (e.target.closest('[data-view-all]')) { viewOnly = false; renderTrainList(); return; }
     if (e.target.closest('[data-clear-line]')) {
         applyLine('');
         return;
@@ -433,7 +460,13 @@ function hiddenBottom() {
 }
 // Go to a point, keeping it in the part of the map you can see
 let mapFlying = false;
-map.on('moveend', () => { mapFlying = false; });
+map.on('moveend', () => {
+    mapFlying = false;
+    // The list follows the map as it is dragged or zoomed
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(() => { if (viewOnly && lastTrains.length) renderTrainList(); }, 150);
+});
+let viewTimer;
 function focusMap(latlng, zoom) {
     mapFlying = !reduceMotion();
     const z = Math.max(map.getZoom(), zoom);
@@ -825,6 +858,8 @@ async function loadJourney() {
         pill.style.background = j.color;
         pill.style.color = j.textColor;
         $('journey-title').textContent = `To ${j.headsign}`;
+        journeyLine = lines.find((l) => l.routeIds.includes(j.routeId)) ?? null;
+        drawFavs();
         const next = j.stops.find((s) => s.state === 'next');
         $('journey-sub').textContent = next
             ? `Next stop ${next.name}${next.expected ? `, expected ${next.expected}` : ` at ${next.scheduled}`}`
@@ -1140,6 +1175,7 @@ async function pickStation(text, fromNear = null) {
         $('near-back-row').hidden = true;
         showStationOnMap(match, true);
     }
+    drawFavs();
     delete $('board').dataset.staggered; // a new station's list settles in again
     saveUrl();
     loadBoard();
@@ -2424,3 +2460,76 @@ $('board-near').addEventListener('click', () => {
         $('station-error').hidden = false;
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
 });
+
+// ---------- Favourites ----------
+// Feedback (Nov 2026): "a favourite option for services". Saved lines and stops, kept in this
+// browser only (no account needed). Lines show at the top of Live, stops at the top of Departures.
+const FAV_KEY = 'stopwise-favourites';
+let journeyLine = null;
+function readFavs() {
+    try {
+        const f = JSON.parse(localStorage.getItem(FAV_KEY));
+        return { lines: Array.isArray(f?.lines) ? f.lines : [], stops: Array.isArray(f?.stops) ? f.stops : [] };
+    } catch { return { lines: [], stops: [] }; }
+}
+function writeFavs(f) {
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch { /* private mode: favourites last until the page closes */ }
+    favs = f;
+    drawFavs();
+}
+let favs = readFavs();
+const lineLabel = (name) => name.replace(/^Bus /, '');
+
+function toggleFav(kind, item) {
+    const f = { ...favs, [kind]: [...favs[kind]] };
+    const i = f[kind].findIndex((x) => x.id === item.id);
+    if (i >= 0) f[kind].splice(i, 1);
+    else f[kind].push(item);
+    writeFavs(f);
+}
+
+function setStar(btn, on, what) {
+    btn.textContent = on ? '★' : '☆';
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', on ? `Remove this ${what} from saved` : `Save this ${what}`);
+    btn.title = on ? 'Saved' : `Save this ${what}`;
+}
+
+function drawFavs() {
+    const chip = (kind, x) => `<span class="fav"><button type="button" class="fav-go" data-${kind}="${escapeHtml(x.id)}">★ ${escapeHtml(x.name)}</button><button type="button" class="fav-x" data-remove-${kind}="${escapeHtml(x.id)}" aria-label="Remove ${escapeHtml(x.name)} from saved">×</button></span>`;
+    $('fav-lines').hidden = !favs.lines.length;
+    $('fav-lines').innerHTML = favs.lines.map((x) => chip('line', x)).join('');
+    $('fav-stops').hidden = !favs.stops.length;
+    $('fav-stops').innerHTML = favs.stops.map((x) => chip('stop', x)).join('');
+    const jf = $('journey-fav');
+    jf.hidden = !journeyLine;
+    if (journeyLine) setStar(jf, favs.lines.some((x) => x.id === journeyLine.name), 'line');
+    const bf = $('board-fav');
+    const st = stations.find((s) => s.id === state.station);
+    bf.hidden = !st || !state.station;
+    if (st) setStar(bf, favs.stops.some((x) => x.id === st.id), 'stop');
+}
+
+$('journey-fav').addEventListener('click', () => {
+    if (journeyLine) toggleFav('lines', { id: journeyLine.name, name: lineLabel(journeyLine.name) });
+});
+$('board-fav').addEventListener('click', () => {
+    const st = stations.find((s) => s.id === state.station);
+    if (st) toggleFav('stops', { id: st.id, name: st.name, lat: st.lat, lng: st.lng, modes: st.modes });
+});
+$('fav-lines').addEventListener('click', (e) => {
+    const x = e.target.closest('[data-remove-line]');
+    if (x) { writeFavs({ ...favs, lines: favs.lines.filter((l) => l.id !== x.dataset.removeLine) }); return; }
+    const go = e.target.closest('[data-line]');
+    if (go) applyLine(go.dataset.line);
+});
+$('fav-stops').addEventListener('click', (e) => {
+    const x = e.target.closest('[data-remove-stop]');
+    if (x) { writeFavs({ ...favs, stops: favs.stops.filter((s) => s.id !== x.dataset.removeStop) }); return; }
+    const go = e.target.closest('[data-stop]');
+    if (!go) return;
+    const s = favs.stops.find((f) => f.id === go.dataset.stop);
+    if (!stations.some((st) => st.id === s.id)) stations.push(s);
+    pickStation(s.name);
+});
+drawFavs();
