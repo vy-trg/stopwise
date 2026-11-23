@@ -15,6 +15,7 @@ import helmet from 'helmet';
 import webpush from 'web-push';
 import { randomUUID } from 'node:crypto';
 import { journeyMoments, journeyOver, cleanJourney, rideState } from './push.js';
+import { geocode } from './geocode.js';
 import { rateLimit } from 'express-rate-limit';
 
 const app = express();
@@ -95,13 +96,16 @@ async function getLiveTrains(bus = false) {
         if (v.stopId) stopIds.add(v.stopId);
         const next = nextStop(updates.data.get(v.tripId), now, data.stopIds);
         if (next) stopIds.add(next.stopId);
+        // A trip our timetable doesn't know (TransLink published a newer one): its last stop stands in for "To"
+        const tu = updates.data.get(v.tripId);
+        if (!trips.has(v.tripId) && tu?.stops.length) stopIds.add(tu.stops.at(-1).stopId);
     }
     const stopNames = await db.getStopNames([...stopIds]);
     return {
         updatedAt: new Date(vehicles.updatedAt).toISOString(),
         feedTime: vehicles.feedTime,
         stale: vehicles.stale || updates.stale,
-        trains: enrichTrains(vehicles.data, updates.data, trips, stopNames, now, data.stopIds),
+        trains: enrichTrains(vehicles.data, updates.data, trips, stopNames, now, data.stopIds, data.routes),
     };
 }
 
@@ -624,6 +628,41 @@ app.get('/api/places', handle(async (req, res) => {
     res.set('Cache-Control', 'public, max-age=3600').json({ to, via });
 }));
 
+// Street addresses and named places for Plan and Departures: GET /api/geocode?q=12 Bounty St
+app.get('/api/geocode', handle(async (req, res) => {
+    const q = String(req.query.q ?? '').trim().slice(0, 100);
+    if (q.length < 3) return res.status(400).json({ error: 'Type at least 3 letters' });
+    try {
+        res.set('Cache-Control', 'public, max-age=86400').json(await geocode(q));
+    } catch (err) {
+        console.error('Address search:', err.message);
+        res.status(503).json({ error: 'Address search isn’t answering right now. Try a station or stop name.' });
+    }
+}));
+
+// Stops near a point, nearest first, with what stops there (train, bus, tram, ferry):
+// GET /api/stops/near?lat=-27.66&lng=152.9[&mode=bus]. Within 800 m (about a 10-minute walk), up to 20.
+app.get('/api/stops/near', handle(async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat + 27.5) > 3 || Math.abs(lng - 153) > 3) {
+        return res.status(400).json({ error: 'lat and lng must be a point in South East Queensland' });
+    }
+    const mode = ['train', 'bus', 'tram', 'ferry'].includes(req.query.mode) ? req.query.mode : null;
+    const { stations } = await getStatic();
+    const near = [];
+    for (const s of stations) {
+        if (s.lat === null) continue;
+        const modes = s.modes.split(',').filter(Boolean);
+        if (mode && !modes.includes(mode)) continue;
+        // A bus interchange and the stops inside it: the interchange is enough
+        const m = distanceM(lat, lng, s.lat, s.lng);
+        if (m <= 800) near.push({ id: s.id, name: stationLabel(s), modes, metres: Math.round(m), walkMins: Math.max(1, Math.round((m * 1.25) / 80)), lat: s.lat, lng: s.lng });
+    }
+    near.sort((a, b) => a.metres - b.metres);
+    res.json(near.slice(0, 20));
+}));
+
 // Track lines for trains, tram and ferries (drawn all the time). Bus routes are drawn one at a
 // time, when you filter to that bus: /api/shapes?route=598-4
 app.get('/api/shapes', handle(async (req, res) => {
@@ -775,7 +814,14 @@ app.get('/api/alerts', handle(async (req, res) => {
     res.json({ stale: alerts.stale, alerts: railAlerts(alerts.data, main, now, isActive) });
 }));
 
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+    // Express 5 passes a listen error here instead of throwing, so say what went wrong
+    if (err) {
+        console.error(err.code === 'EADDRINUSE'
+            ? `Port ${PORT} is already in use. Stop the other app using it, or run with PORT=3001.`
+            : `Could not start: ${err.message}`);
+        process.exit(1);
+    }
     console.log(`Stopwise running on http://localhost:${PORT}`);
     // Load the journey planner's timetable now, so the first person to plan doesn't wait for it
     if (process.env.NODE_ENV !== 'test') getNetwork().catch((err) => console.error('Planner not loaded yet:', err.message));

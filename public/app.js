@@ -1074,11 +1074,14 @@ $('station-input').addEventListener('input', (e) => {
     if (q.length < 2) return;
     stationSearch = setTimeout(async () => {
         try {
-            // Stations and stops only: a campus or airport has no departures board of its own
-            const found = await getJson(`/api/stations?q=${encodeURIComponent(q)}`);
+            // Stations and stops (a campus or airport has no board of its own), then street addresses:
+            // an address shows the stops near it
+            const [found, addrs] = await Promise.all([getJson(`/api/stations?q=${encodeURIComponent(q)}`), searchAddresses(q)]);
             for (const s of found) if (!stations.some((x) => x.id === s.id)) stations.push(s);
-            $('station-list').innerHTML = found.concat(stations.filter((s) => !found.includes(s)).slice(0, 300))
-                .map((s) => `<option value="${escapeHtml(s.name)}"></option>`).join('');
+            if (e.target.value.trim() !== q) return;
+            $('station-list').innerHTML = found.concat(stations.filter((s) => !found.includes(s) && !isAddress(s)).slice(0, 300))
+                .map((s) => `<option value="${escapeHtml(s.name)}"></option>`).join('')
+                + addrs.map((a) => `<option value="${escapeHtml(a.name)}" label="${a.streetOnly ? 'Street (house number not on the map yet): see stops near it' : 'Address: see stops near it'}"></option>`).join('');
         } catch (err) {
             console.error('Station search failed:', err);
         }
@@ -1096,7 +1099,10 @@ function showStationOnMap(station, fly) {
     if (fly) map.flyTo([station.lat, station.lng], Math.max(map.getZoom(), 14), { duration: reduceMotion() ? 0 : 0.6 });
 }
 
-async function pickStation(text) {
+async function pickStation(text, fromNear = null) {
+    // A street address: show the stops near it instead of a board
+    const addr = stations.find((s) => isAddress(s) && s.name.toLowerCase() === text.trim().toLowerCase());
+    if (addr) { showNearStops(addr); return; }
     const typed = text.trim().toLowerCase().replace(/ station$/, '');
     const local = () => stations.find((s) => s.name.toLowerCase() === typed)
         ?? (typed.length >= 3 ? stations.find((s) => s.name.toLowerCase().startsWith(typed)) : null);
@@ -1116,9 +1122,24 @@ async function pickStation(text) {
         return;
     }
     error.hidden = true;
+    $('near-stops').hidden = true;
     $('station-input').value = match.name;
     state.station = match.id;
-    showStationOnMap(match, true);
+    if (fromNear) {
+        // Keep the address on the map next to the stop, so the two can be compared, with a way back
+        showStationOnMap(match, false);
+        drawNearPoint();
+        const p = near.point;
+        map.flyToBounds([[p.lat, p.lng], [match.lat, match.lng]], { padding: [60, 60], maxZoom: 17, duration: reduceMotion() ? 0 : 0.6 });
+        $('near-back').textContent = `← Back to stops near ${p.name === 'Near me' ? 'you' : p.name.split(',')[0]}`;
+        $('near-walk').textContent = `${minsText(fromNear.walkMins)} walk · ${fromNear.metres} m`;
+        $('near-back-row').hidden = false;
+    } else {
+        nearLayer.clearLayers();
+        near.point = null;
+        $('near-back-row').hidden = true;
+        showStationOnMap(match, true);
+    }
     delete $('board').dataset.staggered; // a new station's list settles in again
     saveUrl();
     loadBoard();
@@ -1233,15 +1254,36 @@ function stationSearchBox(inputId, listId) {
         if (q.length < 2) return;
         timer = setTimeout(async () => {
             try {
-                const found = await getJson(`/api/stations?q=${encodeURIComponent(q)}&places=1`);
+                // Stations, stops and places first; street addresses after them (3+ letters)
+                const [found, addrs] = await Promise.all([
+                    getJson(`/api/stations?q=${encodeURIComponent(q)}&places=1`),
+                    searchAddresses(q),
+                ]);
                 for (const s of found) if (!stations.some((x) => x.id === s.id)) stations.push(s);
-                $(listId).innerHTML = found.map((s) => `<option value="${escapeHtml(s.name)}"></option>`).join('');
+                if (e.target.value.trim() !== q) return; // typed on meanwhile
+                $(listId).innerHTML = found.map((s) => `<option value="${escapeHtml(s.name)}"></option>`).join('')
+                    + addrs.map((s) => `<option value="${escapeHtml(s.name)}" label="${s.streetOnly ? 'Street (house number not on the map yet)' : 'Address'}"></option>`).join('');
             } catch (err) {
                 console.error('Station search failed:', err);
             }
-        }, 250);
+        }, 300);
     });
 }
+// Street addresses (OpenStreetMap, through the server): kept in the same list as stations, as
+// { id: "addr:lat,lng", name, lat, lng }, so the boxes and findStation treat them like any place
+async function searchAddresses(q) {
+    if (q.length < 3) return [];
+    try {
+        const found = await getJson(`/api/geocode?q=${encodeURIComponent(q)}`);
+        const out = found.map((a) => ({ id: `addr:${a.lat},${a.lng}:${a.name}`, name: a.name, modes: 'address', lat: a.lat, lng: a.lng, streetOnly: Boolean(a.streetOnly) }));
+        for (const a of out) if (!stations.some((x) => x.id === a.id)) stations.push(a);
+        return out;
+    } catch {
+        return []; // address search down: stations still work
+    }
+}
+const isAddress = (s) => s?.id?.startsWith('addr:');
+
 stationSearchBox('plan-from', 'plan-from-list');
 stationSearchBox('plan-to', 'plan-to-list');
 
@@ -1353,23 +1395,35 @@ const placeQuery = (prefix, p) => (p.lat !== undefined
 
 async function findJourneys() {
     $('plan-error').hidden = true;
-    // Use what's typed now, unless From is "Near me"
-    const isNear = (p, id) => p?.lat !== undefined && $(id).value === 'Near me';
-    if (!isNear(plan.from, 'plan-from')) {
-        const f = findStation($('plan-from').value);
+    // Use what's typed now, unless it's still the point already picked (Near me, or an address)
+    const isPoint = (p, id) => p?.lat !== undefined && $(id).value === p.name;
+    // A street address is a point (walk from it to the stops nearby), anything else is a stop or place
+    const asPlace = (m) => (isAddress(m) ? { lat: m.lat, lng: m.lng, name: m.name } : { id: m.id, name: m.name });
+    if (!isPoint(plan.from, 'plan-from')) {
+        let f = findStation($('plan-from').value);
+        // Typed an address and pressed Find without picking from the list: look it up now
+        if (!f.match && !f.several && /\d|street|road|\bst\b|\brd\b/i.test($('plan-from').value)) {
+            const [first] = await searchAddresses($('plan-from').value.trim());
+            if (first) { f = { match: first }; $('plan-from').value = first.name; }
+        }
         if (f.several) return planError(`More than one place matches From: ${f.several.join(', ')}. Pick one from the list.`);
-        plan.from = f.match ? { id: f.match.id, name: f.match.name } : null;
+        plan.from = f.match ? asPlace(f.match) : null;
     }
-    if (!isNear(plan.to, 'plan-to')) {
-        const t = findStation($('plan-to').value);
+    if (!isPoint(plan.to, 'plan-to')) {
+        let t = findStation($('plan-to').value);
+        // Typed an address and pressed Find without picking from the list: look it up now
+        if (!t.match && !t.several && /\d|street|road|\bst\b|\brd\b/i.test($('plan-to').value)) {
+            const [first] = await searchAddresses($('plan-to').value.trim());
+            if (first) { t = { match: first }; $('plan-to').value = first.name; }
+        }
         if (t.several) return planError(`More than one place matches To: ${t.several.join(', ')}. Pick one from the list.`);
-        plan.to = t.match ? { id: t.match.id, name: t.match.name } : null;
+        plan.to = t.match ? asPlace(t.match) : null;
     }
     if (plan.from?.lat !== undefined && plan.to?.lat !== undefined && plan.from.name === 'Near me' && plan.to.name === 'Near me') {
         return planError('From and To are both Near me. Pick a station or place for one of them.');
     }
-    if (!plan.from) return planError('Pick where you’re leaving from: start typing and choose from the list, or press Near me.');
-    if (!plan.to) return planError('Pick where you’re going: start typing and choose a station or stop from the list.');
+    if (!plan.from) return planError('Pick where you’re leaving from: start typing a station, stop or street address and choose from the list, or press Near me.');
+    if (!plan.to) return planError('Pick where you’re going: start typing a station, stop or street address and choose from the list.');
     if (plan.from.id && plan.from.id === plan.to.id) return planError('From and To are the same place.');
     $('plan-from').value = plan.from.name;
     $('plan-to').value = plan.to.name;
@@ -1541,7 +1595,7 @@ async function drawPlan(j) {
     journeyLayer.clearLayers();
     const all = [];
     // [lat, lng] of names already on the map; "You" counts, so the first stop next to you isn't named on top of it
-    const labelled = [plan.from, plan.to].filter((p) => p?.lat !== undefined && p.name === 'Near me').map((p) => [p.lat, p.lng]);
+    const labelled = [plan.from, plan.to].filter((p) => p?.lat !== undefined).map((p) => [p.lat, p.lng]);
     j.legs.forEach((l, i) => {
         if (l.kind === 'walk') {
             const placeOf = (p) => (!p ? null : p.lat !== undefined ? p : stations.find((s) => s.id === p.id));
@@ -1589,9 +1643,9 @@ async function drawPlan(j) {
         all.push(...pts);
     });
     setPlanFocus(true);
-    for (const me of [plan.from, plan.to].filter((p) => p?.lat !== undefined && p.name === 'Near me')) {
+    for (const me of [plan.from, plan.to].filter((p) => p?.lat !== undefined)) {
         L.circleMarker([me.lat, me.lng], { pane: 'plan', renderer: planRenderer, radius: 7, weight: 3, color: '#2f6b5a', fillColor: '#2f6b5a', fillOpacity: 1 })
-            .bindTooltip('You', { permanent: true, direction: 'right', offset: [8, 0], className: 'station-label' }).addTo(planLayer);
+            .bindTooltip(me.name === 'Near me' ? 'You' : escapeHtml(me.name.split(',')[0]), { permanent: true, direction: 'right', offset: [8, 0], className: 'station-label' }).addTo(planLayer);
     }
     if (all.length) map.flyToBounds(all, { padding: [40, 40], maxZoom: 15, duration: reduceMotion() ? 0 : 0.8 });
 }
@@ -2269,3 +2323,104 @@ function stopPush() {
     if (id) fetch(`/api/push/journey/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
     pushNote('');
 }
+
+// ---------- Stops near an address or near you (Departures) ----------
+// Feedback, Nov 2026: "set a street address, highlight the kinds of stops near you, click one to see
+// its timetable". Nearest first, within about a 10-minute walk, filtered by kind; each one on the
+// map too. Tapping one opens its departures as usual.
+const nearLayer = L.layerGroup().addTo(map);
+const near = { point: null, mode: '', list: [] };
+const MODE_WORD = { train: 'Train', bus: 'Bus', tram: 'Tram', ferry: 'Ferry' };
+
+async function showNearStops(point) {
+    near.point = point;
+    $('station-error').hidden = true;
+    $('near-stops').hidden = false;
+    $('near-title').textContent = point.name === 'Near me' ? 'Stops near you' : `Stops near ${point.name.split(',')[0]}`;
+    $('near-list').innerHTML = '<li class="skeleton-row"></li><li class="skeleton-row"></li>';
+    try {
+        near.list = await getJson(`/api/stops/near?lat=${point.lat}&lng=${point.lng}`);
+    } catch {
+        near.list = [];
+    }
+    if (near.point !== point) return;
+    renderNearStops();
+}
+
+function renderNearStops() {
+    const list = near.list.filter((s) => !near.mode || s.modes.includes(near.mode));
+    for (const b of document.querySelectorAll('#near-seg button')) {
+        const m = b.dataset.near;
+        b.setAttribute('aria-pressed', String(m === near.mode));
+        // Kinds with nothing nearby are greyed out rather than hidden, so the row doesn't jump
+        b.disabled = Boolean(m) && !near.list.some((s) => s.modes.includes(m));
+    }
+    $('near-list').innerHTML = list.length
+        ? list.map((s) => `<li><button type="button" class="near-stop" data-stop="${escapeHtml(s.id)}">
+            <span class="near-name">${escapeHtml(s.name)}</span>
+            <span class="near-meta">${s.modes.map((m) => `<i class="near-mode m-${m}">${MODE_WORD[m] ?? m}</i>`).join('')}<span>${minsText(s.walkMins)} walk · ${s.metres} m</span></span>
+          </button></li>`).join('')
+        : `<li class="empty">No ${near.mode ? `${MODE_WORD[near.mode].toLowerCase()} ` : ''}stops within about a 10-minute walk.</li>`;
+    // On the map: you (or the address), and each stop
+    stationPin.clearLayers();
+    $('near-back-row').hidden = true;
+    drawNearPoint();
+    const p = near.point;
+    for (const s of list) {
+        L.circleMarker([s.lat, s.lng], { radius: 6, weight: 2, color: '#2f6b5a', fillColor: '#fffaf3', fillOpacity: 1 })
+            .bindTooltip(escapeHtml(s.name))
+            .on('click', () => openNearStop(s))
+            .addTo(nearLayer);
+    }
+    const pts = [[p.lat, p.lng], ...list.map((s) => [s.lat, s.lng])];
+    if (pts.length > 1) map.flyToBounds(pts, { padding: [40, 40], maxZoom: 16, duration: reduceMotion() ? 0 : 0.6 });
+    else map.flyTo([p.lat, p.lng], 15, { duration: reduceMotion() ? 0 : 0.6 });
+}
+
+// The address (or you) as a filled dot, labelled
+function drawNearPoint() {
+    nearLayer.clearLayers();
+    const p = near.point;
+    L.circleMarker([p.lat, p.lng], { radius: 7, weight: 3, color: '#2f6b5a', fillColor: '#2f6b5a', fillOpacity: 1 })
+        .bindTooltip(p.name === 'Near me' ? 'You' : escapeHtml(p.name.split(',')[0]), { permanent: true, direction: 'left', offset: [-8, 0], className: 'station-label' })
+        .addTo(nearLayer);
+}
+
+function openNearStop(s) {
+    if (!stations.some((x) => x.id === s.id)) stations.push({ id: s.id, name: s.name, modes: s.modes.join(','), lat: s.lat, lng: s.lng });
+    $('station-input').value = s.name;
+    pickStation(s.name, s);
+}
+
+$('near-back').addEventListener('click', () => {
+    if (!near.point) return;
+    $('near-stops').hidden = false;
+    $('station-input').value = near.point.name === 'Near me' ? '' : near.point.name;
+    renderNearStops();
+    $('near-list').querySelector('button')?.focus();
+});
+
+$('near-seg').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-near]');
+    if (!b || b.disabled) return;
+    near.mode = b.dataset.near;
+    renderNearStops();
+});
+$('near-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-stop]');
+    if (b) openNearStop(near.list.find((s) => s.id === b.dataset.stop));
+});
+$('board-near').addEventListener('click', () => {
+    const btn = $('board-near');
+    if (!navigator.geolocation) { $('station-error').textContent = 'This browser can’t share your location. Type an address instead.'; $('station-error').hidden = false; return; }
+    btn.textContent = 'Finding you…';
+    navigator.geolocation.getCurrentPosition((pos) => {
+        btn.textContent = 'Near me';
+        $('station-input').value = '';
+        showNearStops({ lat: pos.coords.latitude, lng: pos.coords.longitude, name: 'Near me' });
+    }, () => {
+        btn.textContent = 'Near me';
+        $('station-error').textContent = 'Location is off for this site. Type a street address instead.';
+        $('station-error').hidden = false;
+    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+});

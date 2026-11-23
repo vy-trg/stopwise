@@ -719,6 +719,25 @@ body.map-full .leaflet-top { top: env(safe-area-inset-top, 0px); }
 .go-push .link-btn { justify-self: start; font-size: 0.8rem; }
 .go-push .go-test-note { color: var(--muted); font-weight: 600; }
 
+/* Departures: stops near an address or near you */
+.from-row { display: flex; gap: 8px; align-items: center; }
+.from-row .station-input { flex: 1; min-width: 0; }
+.field-hint { margin: -6px 0 0; font-size: 0.78rem; color: var(--muted); }
+.near-stops { display: grid; gap: 10px; }
+.near-head { display: grid; gap: 8px; }
+.near-head h3 { margin: 0; font-size: 1rem; }
+#near-seg button[disabled] { opacity: 0.4; cursor: default; }
+.near-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.near-stop { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--paper); }
+.near-stop:focus-visible { outline: 2px solid var(--gum); outline-offset: 2px; }
+.near-stop:active { transform: scale(0.98); }
+.near-name { font-weight: 800; }
+.near-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8rem; color: var(--muted); }
+.near-mode { font-style: normal; font-weight: 800; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--sand-2); color: var(--ink); }
+.near-back-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.back-link { all: unset; cursor: pointer; font-weight: 800; font-size: 0.88rem; color: var(--gum); padding: 4px 0; }
+.back-link:focus-visible { outline: 2px solid var(--gum); outline-offset: 2px; border-radius: 4px; }
+.near-walk { font-size: 0.8rem; color: var(--muted); }
 /* Feedback (Nov 2026): tab labels ran into each other ("DeparturesAlerts 9"). Labels get the whole
    tab: a little less padding, and the alert count sits as a small badge on the corner instead of
    taking room in the line. The tabs stay equal widths for the sliding highlight. */
