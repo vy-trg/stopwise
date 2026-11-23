@@ -738,3 +738,8 @@ body.map-full .leaflet-top { top: env(safe-area-inset-top, 0px); }
 .back-link { all: unset; cursor: pointer; font-weight: 800; font-size: 0.88rem; color: var(--gum); padding: 4px 0; }
 .back-link:focus-visible { outline: 2px solid var(--gum); outline-offset: 2px; border-radius: 4px; }
 .near-walk { font-size: 0.8rem; color: var(--muted); }
+/* Feedback (Nov 2026): tab labels ran into each other ("DeparturesAlerts 9"). Labels get the whole
+   tab: a little less padding, and the alert count sits as a small badge on the corner instead of
+   taking room in the line. The tabs stay equal widths for the sliding highlight. */
+.tabs button { position: relative; padding: 9px 2px; font-size: 0.85rem; letter-spacing: -0.01em; white-space: nowrap; }
+.tabs .count:not(:empty) { position: absolute; top: 1px; right: 4px; margin: 0; min-width: 16px; height: 16px; padding: 0 4px; font-size: 0.64rem; }
