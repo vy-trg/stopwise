@@ -96,13 +96,16 @@ async function getLiveTrains(bus = false) {
         if (v.stopId) stopIds.add(v.stopId);
         const next = nextStop(updates.data.get(v.tripId), now, data.stopIds);
         if (next) stopIds.add(next.stopId);
+        // A trip our timetable doesn't know (TransLink published a newer one): its last stop stands in for "To"
+        const tu = updates.data.get(v.tripId);
+        if (!trips.has(v.tripId) && tu?.stops.length) stopIds.add(tu.stops.at(-1).stopId);
     }
     const stopNames = await db.getStopNames([...stopIds]);
     return {
         updatedAt: new Date(vehicles.updatedAt).toISOString(),
         feedTime: vehicles.feedTime,
         stale: vehicles.stale || updates.stale,
-        trains: enrichTrains(vehicles.data, updates.data, trips, stopNames, now, data.stopIds),
+        trains: enrichTrains(vehicles.data, updates.data, trips, stopNames, now, data.stopIds, data.routes),
     };
 }
 

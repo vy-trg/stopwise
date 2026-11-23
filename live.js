@@ -12,9 +12,20 @@ export function nextStop(tripUpdate, nowSec, known) {
 
 // One map marker per train: position + route + where it's heading + how late
 // knownStops (optional): every stop id passengers use. Defaults to the stops we have names for.
-export function enrichTrains(vehicles, tripUpdates, trips, stopNames, nowSec, knownStops = stopNames) {
+// routes (optional): every route, so a trip missing from our timetable still gets its line and colour.
+// TransLink adds a version suffix to route ids ("BRCL-4758"), so a newer timetable is matched on the part before it.
+export function enrichTrains(vehicles, tripUpdates, trips, stopNames, nowSec, knownStops = stopNames, routes = []) {
+    const byId = new Map(routes.map((r) => [r.route_id, r]));
+    const byBase = new Map(routes.map((r) => [r.route_id.split('-')[0], r]));
+    const clean = (name) => name?.replace(/ (station|ferry terminal)$/, '') ?? null;
     return vehicles.map((v) => {
-        const trip = trips.get(v.tripId);
+        const tu0 = tripUpdates.get(v.tripId);
+        const route = v.routeId ? byId.get(v.routeId) ?? byBase.get(v.routeId.split('-')[0]) : null;
+        const lastStop = tu0?.stops.length ? clean(stopNames.get(tu0.stops.at(-1).stopId)?.name) : null;
+        const trip = trips.get(v.tripId) ?? (route && {
+            route_id: route.route_id, long_name: route.long_name, short_name: route.short_name,
+            mode: route.mode, color: route.color, text_color: route.text_color, headsign: lastStop,
+        });
         const tu = tripUpdates.get(v.tripId);
         const next = nextStop(tu, nowSec, knownStops);
         const delay = next?.delay ?? null;

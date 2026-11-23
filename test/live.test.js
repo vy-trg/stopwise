@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLines } from '../lines.js';
-import { summarize, buildBoard, nextStop } from '../live.js';
+import { summarize, buildBoard, nextStop, enrichTrains } from '../live.js';
 import { delayAtStop, brisbaneClock, formatClock } from '../schedule.js';
 
 const routes = [
@@ -140,4 +140,16 @@ test('the next stop skips stops passengers do not use (tram turnbacks)', () => {
     ] };
     assert.equal(nextStop(tu, 900, new Map([['CAVILL', { name: 'Cavill Avenue' }]])).stopId, 'CAVILL');
     assert.equal(nextStop(tu, 900).stopId, 'TURNBACK'); // without the list, nothing is skipped
+});
+
+test('enrichTrains: a trip missing from an older timetable still gets its line and destination', () => {
+    const vehicles = [{ id: 'v1', tripId: 'NEW-TRIP', routeId: 'BRCL-4800', lat: -27.4, lng: 153 }];
+    const updates = new Map([['NEW-TRIP', { stops: [{ stopId: 'a', time: 1000, delay: 120, skipped: false }, { stopId: 'z', time: 2000, delay: 120, skipped: false }] }]]);
+    const names = new Map([['a', { name: 'Albion station' }], ['z', { name: 'Cleveland station' }]]);
+    const routes = [{ route_id: 'BRCL-4758', short_name: 'BRCL', long_name: 'Bowen Hills - Cleveland', color: '0D3B66', text_color: 'FFFFFF', mode: 'train' }];
+    const [t] = enrichTrains(vehicles, updates, new Map(), names, 900, names, routes);
+    assert.equal(t.headsign, 'Cleveland');
+    assert.equal(t.routeName, 'Bowen Hills - Cleveland');
+    assert.equal(t.color, '#0D3B66');
+    assert.equal(t.nextStop, 'Albion');
 });

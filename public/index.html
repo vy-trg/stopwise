@@ -218,6 +218,11 @@
                 <p class="field-hint" id="station-hint">Type an address to see the stops near it, then pick one.</p>
                 <datalist id="station-list"></datalist>
                 <p id="station-error" class="field-error" role="alert" hidden></p>
+                <!-- After tapping a nearby stop: how far it is, and a way back to the list -->
+                <div id="near-back-row" class="near-back-row" hidden>
+                    <button id="near-back" type="button" class="back-link">← Back to stops near you</button>
+                    <span id="near-walk" class="near-walk"></span>
+                </div>
                 <!-- Stops near an address or near you: pick a kind, tap a stop for its departures -->
                 <section id="near-stops" class="near-stops" aria-labelledby="near-title" hidden>
                     <div class="near-head">
