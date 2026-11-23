@@ -64,6 +64,7 @@
                 <header class="journey-head">
                     <button id="journey-back" class="link-btn back-btn" type="button">← Back to list</button>
                     <span id="journey-line" class="line-pill"></span>
+                    <button id="journey-fav" class="star-btn" type="button" aria-pressed="false" aria-label="Save this line" hidden>☆</button>
                     <button id="journey-close" class="icon-btn" type="button" aria-label="Close">×</button>
                 </header>
                 <h2 id="journey-title"></h2>
@@ -119,7 +120,11 @@
                     <datalist id="line-list"></datalist>
                     <button id="line-clear" type="button" class="link-btn" hidden>Clear</button>
                 </div>
+                <!-- Saved lines: one tap to see just that line -->
+                <div id="fav-lines" class="favs" hidden></div>
                 <p id="filter-note" class="filter-note" role="status"></p>
+                <!-- Only what's on the map right now; drag or zoom the map to change it -->
+                <p id="view-note" class="view-note" hidden></p>
                 <ul id="train-list" class="train-list" aria-busy="true"><li class="skeleton-row" aria-hidden="true"></li><li class="skeleton-row" aria-hidden="true"></li><li class="skeleton-row" aria-hidden="true"></li><li class="skeleton-row" aria-hidden="true"></li></ul>
             </section>
 
@@ -210,9 +215,12 @@
             <!-- Next trains from one station -->
             <section id="view-board" class="view" role="tabpanel" aria-labelledby="tab-board" hidden>
                 <!-- Type to search or scroll the list: 154 stations is too many for a plain dropdown -->
+                <!-- Saved stops: one tap for their departures -->
+                <div id="fav-stops" class="favs" hidden></div>
                 <label class="field-label" for="station-input">Departures from</label>
                 <div class="from-row">
                     <input id="station-input" class="station-input" list="station-list" autocomplete="off" placeholder="Station, stop or street address" aria-describedby="station-hint">
+                    <button id="board-fav" class="star-btn" type="button" aria-pressed="false" aria-label="Save this stop" hidden>☆</button>
                     <button id="board-near" type="button" class="chip-btn">Near me</button>
                 </div>
                 <p class="field-hint" id="station-hint">Type an address to see the stops near it, then pick one.</p>
