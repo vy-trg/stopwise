@@ -811,7 +811,14 @@ app.get('/api/alerts', handle(async (req, res) => {
     res.json({ stale: alerts.stale, alerts: railAlerts(alerts.data, main, now, isActive) });
 }));
 
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+    // Express 5 passes a listen error here instead of throwing, so say what went wrong
+    if (err) {
+        console.error(err.code === 'EADDRINUSE'
+            ? `Port ${PORT} is already in use. Stop the other app using it, or run with PORT=3001.`
+            : `Could not start: ${err.message}`);
+        process.exit(1);
+    }
     console.log(`Stopwise running on http://localhost:${PORT}`);
     // Load the journey planner's timetable now, so the first person to plan doesn't wait for it
     if (process.env.NODE_ENV !== 'test') getNetwork().catch((err) => console.error('Planner not loaded yet:', err.message));
