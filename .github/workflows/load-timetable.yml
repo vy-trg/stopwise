@@ -18,7 +18,7 @@ jobs:
           cache: npm
       - run: npm ci --omit=dev
       - run: curl -fsSL -o SEQ_GTFS.zip https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip
-      - run: unzip -q SEQ_GTFS.zip -d data/gtfs
+      - run: mkdir -p data/gtfs && unzip -q SEQ_GTFS.zip -d data/gtfs
       - run: node scripts/load-gtfs.js data/gtfs
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
