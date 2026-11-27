@@ -9,13 +9,13 @@ Stopwise: live map and journey tools for TransLink South East Queensland (trains
 ## Commands
 
 ```bash
-PORT=3200 npm run dev          # node --env-file=.env --watch server.js (ports 3000/3001 are taken by Docker here; never `npm start`)
+npm run dev                    # node --env-file=.env --watch server.js; reads PORT from the environment, default 3000
 npm test                       # node --test test/*.test.js (built-in runner, no network, no DB)
 node --test test/raptor.test.js                      # one test file
 node --test --test-name-pattern="change" test/*.test.js   # one test by name
 npm run load-gtfs -- data/gtfs # load the unzipped GTFS timetable into Postgres (needs DATABASE_URL)
 npm run record-delays          # one delay snapshot (also run by GitHub Actions every 10 min)
-FEED_FIXTURES=test/fixtures PORT=3200 npm run dev    # offline: use saved protobuf feeds instead of TransLink
+FEED_FIXTURES=test/fixtures npm run dev    # offline: use saved protobuf feeds instead of TransLink
 docker compose up --build      # app + Postgres (Postgres on host port 5433)
 ```
 
